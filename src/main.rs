@@ -1,18 +1,29 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
+mod db;
+mod entity;
+mod schema;
 mod utils;
 
-use std::{fs, io};
+use diesel::SqliteConnection;
+use eframe::egui;
+use eframe::glow::Context;
+use egui::{FontFamily, FontId, RichText, TextStyle};
+use once_cell::sync::OnceCell;
+use rand::Rng;
 use std::fs::File;
 use std::path::PathBuf;
-use eframe::egui;
-use egui::{FontFamily, FontId, RichText, TextStyle};
-use rand::Rng;
+use std::{env, fs, io};
+use crate::db::delete_image_dir_by_id;
 
+const DB_CELL: OnceCell<SqliteConnection> = OnceCell::new();
 
 fn main() -> Result<(), eframe::Error> {
     // Log to stdout (if you run with `RUST_LOG=debug`).
-
+    dotenvy::dotenv().ok().expect("ok");
+    println!("{}", env::var("DATABASE_URL").expect("hh"));
+    let conn = db::conn_db();
+    DB_CELL.set(conn);
     let options = eframe::NativeOptions {
         initial_window_size: Some(egui::vec2(800.0, 600.0)),
         ..Default::default()
@@ -24,6 +35,7 @@ fn main() -> Result<(), eframe::Error> {
 struct Grid {
     mode: Mode,
     dir_path: Vec<String>,
+    event_receiver: Option<SystrayEventReceiver>,
 }
 
 #[derive(Debug)]
@@ -42,11 +54,7 @@ impl Grid {
         if !self.dir_path.is_empty() {
             for path in &self.dir_path {
                 match fs::read_dir(path) {
-                    Ok(dir) => {
-                        for file in dir {
-
-                        }
-                    }
+                    Ok(dir) => for file in dir {},
                     Err(err) => {}
                 }
             }
@@ -59,6 +67,7 @@ impl Default for Grid {
         Self {
             mode: Mode::SHUFFLE,
             dir_path: vec![],
+            event_receiver:None
         }
     }
 }
@@ -96,19 +105,20 @@ impl eframe::App for Grid {
                     if let Some(path) = rfd::FileDialog::new().pick_folder() {
                         println!("path {:?}", path);
                         let path = path.display().to_string();
-                        self.dir_path.push(path);
-                        // self.picked_path = Some(path.display().to_string());
+                        self.dir_path.push(path.clone());
+                        db::add_wallpaper_dir(path)
                     }
                 }
             });
-            if !self.dir_path.is_empty() {
-                for i in 0..self.dir_path.len() {
-                    let dir_path = &self.dir_path.clone()[i];
+            let image_dirs = db::find_all_image_dir();
+            if !image_dirs.is_empty() {
+                for dir in image_dirs {
                     ui.horizontal(|ui| {
-                        ui.label(dir_path);
+                        ui.label(dir.dir_path.unwrap());
 
                         if ui.button("delete").clicked() {
-                            self.dir_path.remove(i);
+                            // self.dir_path.remove(i);
+                            delete_image_dir_by_id(&dir.id);
                         }
                     });
                 }
@@ -116,4 +126,5 @@ impl eframe::App for Grid {
             ui.label(format!("app mode : {:?}", self.mode));
         });
     }
+    fn on_exit(&mut self, _gl: Option<&Context>) {}
 }
